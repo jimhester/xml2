@@ -112,7 +112,6 @@ test_that("xml_attr<- removes namespaces if desired", {
   expect_equal(length(xml_find_all(x, "//b")), 0)
 
   # but can find it once we remove the namespace
-  # Not yet working as intended
-  #xml_attr(x, "xmlns") <- NULL
-  #expect_equal(length(xml_find_all(x, "//b")), 1)
+  xml_attr(x, "xmlns") <- NULL
+  expect_equal(length(xml_find_all(x, "//b")), 1)
 })

@@ -7,6 +7,9 @@ using namespace Rcpp;
 #include "xml2_types.h"
 #include "xml2_utils.h"
 
+#define LIBXML_DEBUG_ENABLED
+#include <libxml/debugXML.h>
+
 template<typename T> // for xmlAttr and xmlNode
 std::string nodeName(T* node, CharacterVector nsMap) {
   std::string name = Xml2String(node->name).asStdString();
@@ -148,6 +151,61 @@ CharacterVector node_attrs(XPtrNode node, CharacterVector nsMap) {
   return values;
 }
 
+
+// Fix the tree by removing the namespace pointers to the given namespace
+void xmlRemoveNamespace(xmlNodePtr tree, xmlNsPtr ns) {
+
+  // From https://github.com/GNOME/libxml2/blob/v2.9.2/tree.c#L6440
+  //
+  xmlNodePtr node = tree;
+  /*
+   * Browse the full subtree, deep first
+   */
+  while(node != NULL) {
+    if (node->ns != NULL && node->ns == ns) {
+      node->ns = NULL;
+    }
+
+    // Check for namespaces on the attributes
+    if (node->type == XML_ELEMENT_NODE) {
+      xmlAttrPtr attr = node->properties;
+      while (attr != NULL) {
+        if (attr->ns != NULL && attr->ns == ns) {
+          attr->ns = NULL;
+        }
+        attr = attr->next;
+      }
+    }
+
+    if ((node->children != NULL) && (node->type != XML_ENTITY_REF_NODE)) {
+      /* deep first */
+      node = node->children;
+    } else if ((node != tree) && (node->next != NULL)) {
+      /* then siblings */
+      node = node->next;
+    } else if (node != tree) {
+      /* go up to parents->next if needed */
+      while (node != tree) {
+        if (node->parent != NULL)
+          node = node->parent;
+        if ((node != tree) && (node->next != NULL)) {
+          node = node->next;
+          break;
+        }
+        if (node->parent == NULL) {
+          node = NULL;
+          break;
+        }
+      }
+      /* exit condition */
+      if (node == tree)
+        node = NULL;
+    } else
+      break;
+  }
+  return;
+}
+
 void removeNs(xmlNodePtr node, xmlChar* prefix) {
   if (node == NULL) {
     return;
@@ -160,8 +218,8 @@ void removeNs(xmlNodePtr node, xmlChar* prefix) {
   xmlNsPtr prev = node->nsDef;
   if (xmlStrEqual(prev->prefix, prefix)) {
     node->nsDef = prev->next;
+    xmlRemoveNamespace(node, prev);
     xmlFreeNs(prev);
-    xmlReconciliateNs(node->doc, node);
     return;
   }
 
@@ -169,8 +227,8 @@ void removeNs(xmlNodePtr node, xmlChar* prefix) {
     xmlNsPtr cur = prev->next;
     if (xmlStrEqual(cur->prefix, prefix)) {
       prev->next = cur->next;
+      xmlRemoveNamespace(node, cur);
       xmlFreeNs(cur);
-      xmlReconciliateNs(node->doc, node);
       return;
     }
     prev = prev->next;
@@ -448,4 +506,12 @@ void node_set_namespace_prefix(XPtrDoc doc, XPtrNode node, std::string prefix) {
   }
 
   xmlSetNs(node.get(), ns);
+}
+
+// [[Rcpp::export]]
+void str_xml_node(XPtrNode node_) {
+  xmlNodePtr node = node_.get();
+  FILE * output = stdout;
+  xmlDebugDumpNode(output, node, 0);
+  return;
 }
